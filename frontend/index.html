@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Megatron Automation Demo</title>
+<style>
+body {
+    font-family: 'Consolas', monospace;
+    background-color: #0d1117;
+    color: #e6edf3;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 20px;
+    margin: 0;
+}
+.container {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 30px;
+    border-radius: 15px;
+    width: 600px;
+    text-align: center;
+    box-shadow: 0 0 30px rgba(0,255,255,0.2);
+}
+h1 { color: #00ffff; margin-bottom: 20px; }
+
+.actions label { display: block; margin: 8px 0; cursor: pointer; }
+button {
+    background-color: #00ffff;
+    color: #000;
+    font-weight: bold;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 15px;
+    transition: 0.2s;
+}
+button:hover { background-color: #0ff; transform: scale(1.05); }
+
+.console {
+    background-color: #161b22;
+    margin-top: 20px;
+    padding: 10px;
+    border-radius: 10px;
+    text-align: left;
+    height: 250px;
+    overflow-y: auto;
+    position: relative;
+    font-size: 0.9rem;
+}
+.log-success { color: #00ff9f; }
+.log-warning { color: #ffff00; }
+.log-error { color: #ff4c4c; }
+
+.cursor {
+    display: inline-block;
+    width: 10px;
+    background-color: #00ff9f;
+    animation: blink 1s infinite;
+    margin-left: 2px;
+}
+@keyframes blink { 0%,50%,100%{opacity:1;} 25%,75%{opacity:0;} }
+
+#taskPanel, #backendPanel {
+    background: #0b0f13;
+    color: #0ff;
+    padding: 10px;
+    margin-top: 15px;
+    border-radius: 8px;
+    height: 120px;
+    overflow-y: auto;
+    text-align: left;
+    font-size: 0.85rem;
+}
+
+#progressBarContainer {
+    width: 100%;
+    background: #111;
+    height: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+}
+#progressBar {
+    height: 100%;
+    width: 0%;
+    background: #0ff;
+    border-radius: 8px;
+    transition: width 0.3s;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>⚙️ Megatron Automation Demo</h1>
+
+    <div class="actions">
+        <label><input type="checkbox" value="collect_reports"> Collect Reports</label>
+        <label><input type="checkbox" value="analyze_data"> Analyze Data</label>
+        <label><input type="checkbox" value="send_notification"> Send Notification</label>
+        <label><input type="checkbox" value="save_logs"> Save Logs</label>
+    </div>
+
+    <input type="text" id="taskInput" placeholder="Enter report name or task" style="margin-top:10px;width:90%;padding:5px;border-radius:5px;border:none;">
+
+    <button id="runBtn">🚀 Run Automation</button>
+
+    <div class="console">
+        <pre id="logArea">No logs yet...</pre>
+        <span class="cursor" id="cursor"></span>
+    </div>
+
+    <div id="progressBarContainer">
+        <div id="progressBar"></div>
+    </div>
+
+    <div id="taskPanel">Task results will appear here...</div>
+    <div id="backendPanel">Backend steps will appear here...</div>
+
+    <button id="downloadBtn" style="margin-top:10px;">💾 Download Logs</button>
+</div>
+
+<script>
+const cursor = document.getElementById("cursor");
+const progressBar = document.getElementById("progressBar");
+const backendPanel = document.getElementById("backendPanel");
+const taskPanel = document.getElementById("taskPanel");
+const taskInput = document.getElementById("taskInput");
+let logsText = "";
+
+document.getElementById("runBtn").addEventListener("click", async () => {
+    const selected = Array.from(document.querySelectorAll("input[type=checkbox]:checked")).map(cb=>cb.value);
+    const userInput = taskInput.value.trim();
+    if(!selected.length){alert("Select at least one action!"); return;}
+
+    const logArea = document.getElementById("logArea");
+    logArea.innerHTML = ""; cursor.style.display="inline-block";
+    taskPanel.innerHTML=""; backendPanel.innerHTML="";
+    logsText = "";
+
+    try{
+        const response = await fetch("http://127.0.0.1:5000/run",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({actions:selected, input:userInput})
+        });
+
+        if(!response.ok) throw new Error("Backend error");
+        const data = await response.json();
+
+        // Safety checks
+        if(!data.logs || !Array.isArray(data.logs)) data.logs = [];
+        if(!data.files || !Array.isArray(data.files)) data.files = [];
+
+        const totalLogs = data.logs.length;
+        let stepCount = 0;
+
+        for(const line of data.logs){
+            stepCount++;
+            await new Promise(resolve=>{
+                let i=0;
+                const span=document.createElement('span');
+                if(line.toLowerCase().includes('error')) span.className='log-error';
+                else if(line.toLowerCase().includes('warn')) span.className='log-warning';
+                else span.className='log-success';
+                logArea.appendChild(span);
+
+                const interval = setInterval(()=>{
+                    span.innerText += line[i];
+                    logArea.scrollTop = logArea.scrollHeight;
+                    logsText += line[i];
+                    i++;
+                    if(i>=line.length) clearInterval(interval, resolve());
+                },20);
+            });
+            logArea.appendChild(document.createElement('br'));
+
+            // Update progress bar
+            progressBar.style.width = `${Math.floor((stepCount/totalLogs)*100)}%`;
+
+            // Update backend panel
+            backendPanel.innerHTML += `Step ${stepCount}: ${line}<br>`;
+        }
+
+        // Display simulated files/tasks
+        if(data.files.length){
+            data.files.forEach(f=>{
+                const p=document.createElement('p'); 
+                p.innerText="File generated: "+f;
+                taskPanel.appendChild(p);
+            });
+        }
+
+        cursor.style.display="none";
+
+    }catch(err){
+        const span=document.createElement('span');
+        span.className='log-error';
+        span.innerText="\n❌ Error: "+err.message;
+        logArea.appendChild(span);
+        cursor.style.display="none";
+    }
+});
+
+// Download logs
+document.getElementById("downloadBtn").addEventListener("click",()=>{
+    const blob=new Blob([logsText], {type:"text/plain"});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download="megatron_logs.txt";
+    a.click();
+});
+</script>
+</body>
+</html>
